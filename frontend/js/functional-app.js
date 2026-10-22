@@ -230,7 +230,7 @@
   const hourNow=()=>Number(localTime().slice(11,13));
   const greeting=()=>{const h=hourNow();return h<12?['Good morning','မင်္ဂလာ နံနက်ခင်းပါ']:h<17?['Good afternoon','မင်္ဂလာ နေ့လယ်ခင်းပါ']:['Good evening','မင်္ဂလာ ညနေခင်းပါ'];};
   const ks=x=>Number.isFinite(x)?`${x.toLocaleString()} Ks`:'Amount unclear';
-  const located=o=>live?!!o.pin:o.anchor&&['dictionary_matched','dispatcher_verified','buyer_confirmed'].includes(o.location);
+  const located=o=>live?!!o.pin:!!o.anchor&&(['dictionary_matched','dispatcher_verified','buyer_confirmed'].includes(o.location)||['landmark','street'].includes(o.pinFrom)&&!o.vagueAddress);
   function laneOf(o){
     const t=store.triage(o.id),link=store.linkStatus(o.id),b=store.blockers(o.id);
     if(['delivered','returned','cancelled'].includes(o.state))return 'done';

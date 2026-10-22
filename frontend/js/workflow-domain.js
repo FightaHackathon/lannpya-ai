@@ -83,7 +83,7 @@
     const encodingReview=/[\u1060-\u108f]/.test(text);
     const landmark=field('Landmark'), vague=/near|နား|အနီး|somewhere/i.test(landmark) && !/gate|building|တိုက်|အမှတ်/i.test(landmark);
     const known=!!(street && area?.streets.includes(street)), auto=addressPoint(area?.id,street,landmark,text), anchor=auto?{...auto.point}:null;
-    const fields={name:field('Name')||take('name',extra?.name||''),phone:phones.length===1?phones[0]:'',areaId:area?.id||'',street,landmark,floor:field('Floor'),note:field('Note'),reference:field('Invoice'),item:field('Item')||'Parcel',payment:prepaid?'prepaid':Number.isSafeInteger(amount)&&amount>0?'cod':'unknown',expected:prepaid?0:amount,anchor,pin:anchor?{...anchor}:null,pinFrom:auto?.precision||null,location:known&&!vague?'dictionary_matched':'unresolved',encodingReview,normalized:text,time:WINDOWS.includes(field('Time'))?field('Time'):WINDOWS[0],date:field('Date')||null};
+    const fields={name:field('Name')||take('name',extra?.name||''),phone:phones.length===1?phones[0]:'',areaId:area?.id||'',street,landmark,floor:field('Floor'),note:field('Note'),reference:field('Invoice'),item:field('Item')||'Parcel',payment:prepaid?'prepaid':Number.isSafeInteger(amount)&&amount>0?'cod':'unknown',expected:prepaid?0:amount,anchor,pin:anchor?{...anchor}:null,pinFrom:auto?.precision||null,vagueAddress:!!vague,location:known&&!vague?'dictionary_matched':'unresolved',encodingReview,normalized:text,time:WINDOWS.includes(field('Time'))?field('Time'):WINDOWS[0],date:field('Date')||null};
     const provenance=Object.fromEntries(['phone','expected','payment'].map(k=>[k,{source:'rule',evidence:k==='phone'?phones.join(', '):amountText||field('Payment')||(ruled?(ruled.prepaid?`Prepaid${ruled.paymentMethod?' via '+ruled.paymentMethod:''}`:String(ruled.codAmount)):'')} ]));
     for(const k of ['areaId','street','anchor'])provenance[k]={source:'dictionary',evidence:area?.name||'No supported match'};
     for(const k of ['name','item','landmark','floor','note'])provenance[k]={source:'rule',evidence:fields[k]||'Not extracted'};
@@ -111,7 +111,7 @@
     const t=triage(o), reasons=[];
     if(t.level==='red')reasons.push(...t.reasons);
     if(o.encodingReview)reasons.push('Review Unicode encoding');
-    if(!o.anchor||!['dictionary_matched','dispatcher_verified','buyer_confirmed'].includes(o.location)&&!o.confirmation)reasons.push('Confirm delivery location');
+    if(!o.anchor||!['dictionary_matched','dispatcher_verified','buyer_confirmed'].includes(o.location)&&!o.confirmation&&!(['landmark','street'].includes(o.pinFrom)&&!o.vagueAddress))reasons.push('Confirm delivery location');
     if(o.payment==='unknown'||!Number.isSafeInteger(o.expected)||o.expected<0||(o.payment==='cod'&&o.expected===0))reasons.push('Confirm payment mode and exact amount');
     if(!o.received)reasons.push('Record physical hub receipt');
     if(o.incident)reasons.push('Resolve parcel incident');

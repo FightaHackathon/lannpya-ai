@@ -57,7 +57,13 @@ export async function createLiveStore(W,{api=new LocalWorkspaceApi(),origin=loca
   const places=['Hlaing','Kamaryut','Sanchaung','Bahan','Mayangon','Insein','Yankin','Tamwe','Thingangyun','South Okkalapa','North Okkalapa','North Dagon','South Dagon','East Dagon','Dagon Seikkan'];
   // Keep the demo geodata so the dispatcher's address still drops a starting pin in live mode.
   const geo=W.PLACES.map(p=>({...p}));
-  const autoPin=(township,street,landmark,text='')=>{const t=[township,text].join(' ').toLowerCase().replace(/kamaryut/g,'kamayut');const area=geo.find(g=>g.aliases?.some(x=>t.includes(String(x).toLowerCase())));return area?W.addressPoint(area.id,street,landmark,text,geo)?.point||null:null;};
+  // Approximate township centres for every live township, used when no street or landmark point is known.
+  const CENTRES=[['Hlaing',['hlaing','လှိုင်'],16.853,96.123],['Kamaryut',['kamaryut','kamayut','ကမာရွတ်','hledan','လှည်းတန်း'],16.825,96.131],['Sanchaung',['sanchaung','စမ်းချောင်း'],16.803,96.132],['Bahan',['bahan','ဗဟန်း'],16.810,96.157],['Mayangon',['mayangon','mayangone','မရမ်းကုန်း'],16.872,96.140],['Insein',['insein','အင်းစိန်'],16.893,96.104],['Yankin',['yankin','ရန်ကင်း'],16.840,96.164],['Tamwe',['tamwe','တာမွေ'],16.807,96.177],['Thingangyun',['thingangyun','သင်္ဃန်းကျွန်း'],16.830,96.195],['South Okkalapa',['south okkalapa','တောင်ဥက္ကလာပ'],16.849,96.183],['North Okkalapa',['north okkalapa','မြောက်ဥက္ကလာပ'],16.902,96.165],['North Dagon',['north dagon','မြောက်ဒဂုံ'],16.875,96.196],['South Dagon',['south dagon','တောင်ဒဂုံ'],16.857,96.220],['East Dagon',['east dagon','အရှေ့ဒဂုံ'],16.910,96.235],['Dagon Seikkan',['dagon seikkan','ဒဂုံဆိပ်ကမ်း'],16.858,96.255]];
+  const autoPin=(township,street,landmark,text='')=>{
+    const t=[township,street,landmark,text].filter(Boolean).join(' ').toLowerCase().replace(/kamaryut/g,'kamayut');
+    const area=geo.find(g=>g.aliases?.some(x=>t.includes(String(x).toLowerCase())));
+    const exact=area?W.addressPoint(area.id,street,landmark,text,geo):null;if(exact&&exact.precision!=='township')return exact.point;
+    const c=CENTRES.find(([name,al])=>String(township||'').toLowerCase()===name.toLowerCase()||al.some(a=>t.includes(a)));return c?{lat:c[2],lng:c[3]}:exact?.point||null;};
   W.PLACES.splice(0,W.PLACES.length,...places.map(name=>({id:name,name,aliases:[name]})));state.policy.areas=[...places];
   const order=id=>{const o=state.orders.find(o=>o.id===id);if(!o)throw Error('Order unavailable in this workspace. Refresh before retrying.');return copy(o);};
   const row=id=>{const o=native.get(id);if(!o)throw Error('Refresh the dispatcher order before changing it.');return o;};
@@ -77,7 +83,12 @@ export async function createLiveStore(W,{api=new LocalWorkspaceApi(),origin=loca
       value=[];
       for(const record of p.records){
         try{const saved=await call('/api/orders','POST',{raw_text:record.raw,parcel:{item:p.item,delivery_day:p.date,hub_received:false}});value.push(saved.id);
-          const f=W.parse(record.raw),pt=autoPin(f.areaId,f.street,f.landmark,record.raw);if(pt){try{await sync();await api.patch(row(saved.id),{latitude:pt.lat.toFixed(7),longitude:pt.lng.toFixed(7)});}catch{}}}
+          // The server only reads labelled names; fill what it missed from the on-device parser, and drop a starting pin.
+          try{await sync();const r=row(saved.id),f=W.parse(record.raw),pt=autoPin(r.township,r.street||f.street,r.landmark||f.landmark,record.raw),fix={};
+            if(!r.customer_name&&f.name)fix.customer_name=f.name;
+            if(r.cod_amount==null&&Number.isSafeInteger(f.expected)&&f.expected>0)fix.cod_amount=String(f.expected);
+            if(r.latitude==null&&pt){fix.latitude=pt.lat.toFixed(7);fix.longitude=pt.lng.toFixed(7);}
+            if(Object.keys(fix).length)await api.patch(r,fix);}catch(e){console.warn('Could not fill parsed fields',e);}}
         catch(e){await sync();throw Error(`${value.length} order(s) persisted before this error: ${e.message}. Review the board before retrying to avoid duplicates.`);}
       }
     }else if(type==='issue_link'){
@@ -125,7 +136,7 @@ export async function createLiveStore(W,{api=new LocalWorkspaceApi(),origin=loca
     requests:()=>copy(requests.filter(r=>r.decision==='REVIEW_REQUIRED'&&!r.resolution)),
     async selectRider(id){await connect('rider',id);await sync('ride');},
     async verifyRefresh(token){await loadBuyer(token);const b=buyerStates.get(token);if(b.details)b.details=await api.buyer.details();},
-    async parse(raw_text){await connect('admin');const r=await call('/api/orders/parse','POST',{raw_text}),a=r.address;return {name:a.customer_name||'',phone:a.phone_number||'',areaId:a.township||'',street:a.street||'',landmark:a.landmark||'',floor:a.building_floor_unit||'',expected:a.cod_amount,payment:a.cod_amount===0?'prepaid':a.cod_amount==null?'unknown':'cod',note:a.delivery_instructions||'',warnings:[...r.validation_reasons.map(v=>v.message),`AI: ${r.ai.status}. ${r.ai.message}`],confidence:r.confidence.toLowerCase(),pin:null};},
+    async parse(raw_text){await connect('admin');const r=await call('/api/orders/parse','POST',{raw_text}),a=r.address;const local=W.parse?W.parse(raw_text):{};return {name:a.customer_name||local.name||'',phone:a.phone_number||'',areaId:a.township||'',street:a.street||'',landmark:a.landmark||'',floor:a.building_floor_unit||'',expected:a.cod_amount??(local.payment==='cod'?local.expected:null),payment:a.cod_amount===0?'prepaid':a.cod_amount==null?(local.payment==='cod'?'cod':'unknown'):'cod',note:a.delivery_instructions||'',warnings:[...r.validation_reasons.map(v=>v.message),`AI: ${r.ai.status}. ${r.ai.message}`],confidence:r.confidence.toLowerCase(),pin:(pt=>pt?{...pt}:null)(autoPin(a.township,a.street,a.landmark,raw_text))};},
     triage:id=>{const o=order(id);return {level:(o.confidence||'AMBER').toLowerCase(),reasons:o.reasons||['Location accuracy is not independently verified.']};},
     blockers:id=>{const o=order(id);return [...(o.confidence==='RED'?['Correct critical address validation failures']:[]),...(!o.pin?['Location needed']:[]),...(o.pendingBuyerReviewCount?[`${o.pendingBuyerReviewCount} buyer requests awaiting review`]:[]),...(!o.received?['Physical hub receipt required']:[])];},
     canEdit:id=>!['assigned','out_for_delivery','delivered','return_pending','returned','cancelled'].includes(order(id).state),

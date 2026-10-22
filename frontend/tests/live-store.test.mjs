@@ -36,9 +36,9 @@ test('raw imports use actual backend parsing, preserve input and report partial 
 test('switching rider loads only the actual assigned rider queue',async()=>{
  const {calls,store}=await setup('ride');assert.equal(store.snapshot().orders.length,0);assert.ok(calls.some(c=>c.path==='/api/riders/rider/queue'&&c.side==='rider'));assert.ok(!calls.some(c=>c.path==='/api/orders'));const other=await setup();await other.store.sync('ride');await other.store.selectRider('other');assert.equal(other.dictionary.ACTORS.rider.id,'rider');assert.equal(other.dictionary.ACTORS.rider2.id,'other');assert.equal(other.store.riderActor().id,'other');assert.ok(other.calls.some(c=>c.path==='/api/riders/other/queue'));
 });
-test('live parser projection uses server classification and AI status, no client geocoding',async()=>{
+test('live parser projection uses server classification and AI status; the pin is only an approximate township start',async()=>{
  const {api,store}=await setup();api.call=async()=>({address:{phone_number:'09790000000',township:'Hlaing',cod_amount:6000},confidence:'AMBER',validation_reasons:[{message:'Unverified'}],ai:{status:'mock',message:'No real extraction'}});
- const r=await store.parse('original');assert.equal(r.phone,'09790000000');assert.equal(r.expected,6000);assert.equal(r.confidence,'amber');assert.equal(r.pin,null);assert.ok(r.warnings.some(x=>x.includes('mock')));
+ const r=await store.parse('original');assert.equal(r.phone,'09790000000');assert.equal(r.expected,6000);assert.equal(r.confidence,'amber');assert.ok(r.pin&&Math.abs(r.pin.lat-16.853)<0.01);assert.ok(r.warnings.some(x=>x.includes('mock')));
 });
 
 const pendingReviews=()=>[
